@@ -1,0 +1,770 @@
+---
+title: "Active transport accessibility to mobility hubs"
+output:
+  html_document:
+    theme: !expr bslib::bs_theme(version = 4, bootswatch = "yeti")
+    toc: true
+    toc_float: true
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r pkgs, include=FALSE}
+library(sf)
+library(sfnetworks)
+library(units)
+library(tidyverse)
+library(here)
+library(plotly)
+library(leaflet)
+library(DT)
+```
+
+```{r pkgopts, include=FALSE}
+options(DT.options = list(dom = "t"))
+```
+
+```{r funcs, include=FALSE}
+plot_net = function(data, hub, color, threshold = NULL, mode = "bike") {
+  data = data[data$hub == hub & !is.na(data$index_threshold), ]
+  if (is.null(threshold)) {
+    g = ggplot(data, aes(x = index_threshold, y = share))
+  } else {
+    g = ggplot(data, aes(x = index_threshold, y = share)) +
+      geom_vline(xintercept = threshold, color = "grey20", linetype = "dashed") +
+      geom_point(data = filter(data, round(index_threshold, 2) == threshold), cex = 3, color = "grey20")
+  }
+  g +
+    geom_point(color = color) +
+    geom_line(color = color) +
+    xlab(str_c(str_to_title(mode), "ability lower bound")) +
+    ylab("Share of total network length [%]") +
+    ylim(0, 100)
+}
+
+plot_nets = function(data, colors, threshold = NULL, mode = "bike") {
+  data = filter(data, !is.na(index_threshold))
+  if (is.null(threshold)) {
+    g = ggplot(data, aes(x = index_threshold, y = share, color = hub))
+  } else {
+    g = ggplot(data, aes(x = index_threshold, y = share, color = hub)) +
+      geom_vline(xintercept = threshold, color = "grey20", linetype = "dashed")
+  }
+  g +
+    geom_point() +
+    geom_line() +
+    scale_color_manual(values = colors) +
+    xlab(str_c(str_to_title(mode), "ability lower bound")) +
+    ylab("Share of total network length [%]") +
+    ylim(0, 100)
+}
+
+plot_grid = function(data, hub, color, thresholds = NULL, mode = "bike") {
+  data = data[data$hub == hub, ]
+  if (is.null(thresholds)) {
+    g = ggplot(data, aes(x = index_threshold, y = share, group = detour_threshold)) +
+      geom_point(color = color) +
+      geom_line(color = color)
+  } else {
+    g = ggplot(data, aes(x = index_threshold, y = share, group = detour_threshold)) +
+      geom_vline(xintercept = thresholds[1], color = "grey20", linetype = "dashed") +
+      geom_point(data = filter(data, round(index_threshold, 2) == thresholds[1] & round(detour_threshold, 2) == thresholds[2]), cex = 3, color = "grey20") +
+      geom_point(color = "darkgrey") +
+      geom_line(color = "darkgrey") +
+      geom_point(data = filter(data, round(detour_threshold, 2) == thresholds[2]), color = color, cex = 1.6) +
+      geom_line(data = filter(data, round(detour_threshold, 2) == thresholds[2]), color = color, lwd = 0.6)
+  }
+  g +
+    xlab(str_c(str_to_title(mode), "ability lower bound")) +
+    ylab("Share of population [%]") +
+    ylim(0, 100)
+}
+
+plot_grids = function(data, colors, detour = 1.5, threshold = NULL, mode = "bike") {
+  data = filter(data, detour_threshold == detour)
+  if (is.null(threshold)) {
+    g = ggplot(data, aes(x = index_threshold, y = share, color = hub))
+  } else {
+    g = ggplot(data, aes(x = index_threshold, y = share, color = hub)) +
+      geom_vline(xintercept = threshold, color = "grey20", linetype = "dashed")
+  }
+  g +
+    geom_point() +
+    geom_line() +
+    scale_color_manual(values = colors) +
+    xlab(str_c(str_to_title(mode), "ability lower bound")) +
+    ylab("Share of population [%]") +
+    ylim(0, 100)
+}
+```
+
+```{r data, include=FALSE}
+merge_data = function(data, type, layer = NULL) {
+  if (is.null(layer)) {
+    out = lapply(data, \(x) mutate(x[[type]], hub = x$hub$short_name))
+  } else {
+    out = lapply(data, \(x) mutate(st_as_sf(x[[type]], layer), hub = x$hub$short_name))
+  }
+  out |>
+    bind_rows() |>
+    mutate(hub = as.factor(hub))
+}
+
+load(here("data/data.RData"))
+
+hubs = merge_data(bike_data, "hub") |> st_transform(4326)
+
+bike_edgs = merge_data(bike_data, "network", layer = "edges") |> st_transform(4326)
+bike_nets = merge_data(bike_data, "suitable_networks") |> st_transform(4326)
+bike_hlds = merge_data(bike_data, "connected_households") |> st_transform(4326)
+
+walk_edgs = merge_data(walk_data, "network", layer = "edges") |> st_transform(4326)
+walk_nets = merge_data(walk_data, "suitable_networks") |> st_transform(4326)
+walk_hlds = merge_data(walk_data, "connected_households") |> st_transform(4326)
+```
+
+```{r clrs, include=FALSE}
+clrs = c("hotpink", "cadetblue", "greenyellow", "darkmagenta", "orange", "skyblue", "khaki", "firebrick", "navy", "forestgreen")
+marker_clrs = c("pink", "cadetblue", "lightgreen", "purple", "orange", "lightblue", "beige", "darkred", "darkblue", "darkgreen")
+```
+
+This notebook analyzes the active transport accessibility to various proposed transit mobility hub locations in the city of Salzburg. The hub locations are shown in the map below. They are neither real nor planned transit mobility hub locations, but are chosen for the analysis by means of example.
+
+```{r hubs, echo=FALSE}
+icons = awesomeIcons(
+  icon = 'ios-close',
+  iconColor = 'black',
+  library = 'ion',
+  markerColor = marker_clrs
+)
+
+renderLeaflet({
+  leaflet(hubs) |>
+    addProviderTiles("Esri.WorldGrayCanvas", group = "ESRI Gray Canvas") |>
+    addTiles(group = "OpenStreetMap") |>
+    addAwesomeMarkers(icon = icons, label = ~short_name) |>
+    addLayersControl(baseGroups = c("ESRI Gray Canvas", "OpenStreetMap"))
+})
+```
+
+## Bicycle accessibility
+
+### Describe
+
+In this section we describe some basic characteristics of the street network around each hub location. As the extent of this network, we use a buffer (based on network distance) of 3 kilometers around each hub. Many of the descriptive statistics relate to the bikeability indices of the streets, which are derived using the [NetAScore toolbox](https://github.com/plus-mobilitylab/netascore). Bikeability indices range from 0 (worst bikeability) to 1 (best bikeability). They are composite indices obtained by computing a weighted average of different indicators that each relate to a certain factor influencing how suitable the street is for bicycle riding. These indicators include the type of bicycle infrastructure, the road category, the pavement type, and the gradient.
+
+The following table provides an overview of the bikeability distribution for each hub. The average values are weighted by street length.
+
+```{r bike_desc_stats_table, echo=FALSE}
+bike_stats = bike_edgs |>
+  st_drop_geometry() |>
+  group_by(hub) |>
+  summarize(
+    minidx = round(min(index, na.rm = TRUE), 2),
+    maxidx = round(max(index, na.rm = TRUE), 2),
+    avgidx = round(weighted.mean(index, drop_units(length), na.rm = TRUE), 2),
+    .groups = "drop"
+  ) |>
+  setNames(c("Hub", "Lowest bikeability", "Highest bikeability", "Average bikeability"))
+
+DT::renderDataTable({
+  datatable(bike_stats)
+})
+```
+
+The following table provides an overview of the types of bicycle infrastructure present in the street network around each hub. The values are shares of total network length, in percentage.
+
+
+
+The following figures show the streets of the network around a selected hub, colored by bikeability index, and the corresponding density plot of bikeability indices, weighted by street length.
+
+```{r bike_desc_input, echo=FALSE}
+inputPanel(
+  selectInput("bike_hub_desc", label = "Hub:",
+              choices = hubs |> arrange(short_name) |> pull(short_name), selected = "Hauptbahnhof")
+)
+```
+
+```{r bike_desc_figs, echo=FALSE}
+bikeabilitymap = renderLeaflet({
+  hub_name = input$bike_hub_desc
+  hub_geom = filter(hubs, short_name == hub_name)
+  hub_mark_color = marker_clrs[which(hubs$short_name == hub_name)]
+  edges = filter(bike_edgs, !is.na(index) & hub == hub_name)
+  icon = awesomeIcons(
+    icon = 'ios-close',
+    iconColor = 'black',
+    library = 'ion',
+    markerColor = hub_mark_color
+  )
+  pal = colorNumeric("viridis", domain = edges$index)
+  leaflet(edges) |>
+    addProviderTiles("Esri.WorldGrayCanvas", group = "ESRI Gray Canvas") |>
+    addTiles(group = "OpenStreetMap") |>
+    addPolylines(color = ~pal(index), weight = 3) |>
+    addAwesomeMarkers(data = hub_geom, icon = icon, label = ~short_name) |>
+    addLegend("bottomright", pal = pal, values = ~index, title = "Bikeability index", opacity = 0.8) |>
+    addLayersControl(baseGroups = c("ESRI Gray Canvas", "OpenStreetMap"))
+})
+
+bikeabilityplot = renderPlotly({
+  hub_name = input$bike_hub_desc
+  hub_color = clrs[which(hubs$short_name == hub_name)]
+  edges = filter(bike_edgs, !is.na(index) & hub == hub_name)
+  ggplotly(
+    ggplot(edges, aes(index)) +
+      geom_density(aes(weight = drop_units(length)), bw = 0.02, fill = hub_color, alpha = 0.5) +
+      xlab("Bikeability index") +
+      xlim(0, 1)
+  )
+})
+
+fluidRow(column(6, bikeabilitymap), column(6, bikeabilityplot))
+```
+
+### Assess {.tabset}
+
+#### Size of the bikeable network
+
+In this section we assess the size of the bikeable street network around each hub location, and compare it to the total size of the street network around that hub. What is considered a bikeable street is defined by a bikeability threshold that sets a lower bound to the computed bikeability index of a street. Hence, any street with a bikeability index that is higher or equal to the threshold value is considered a bikeable street.
+
+Below, you can view the assessment for each hub. With the slider you can influence the bikeability threshold that defines which streets are considered bikeable. The table shows some aggregated performance indicators that can be used to rank the hub. The map shows the bikeable network (colored) compared to the total network (grey). The plot shows the share the total network length that is considered bikeable, considering different bikeability thresholds.
+
+```{r bike_size_input, echo=FALSE}
+inputPanel(
+  selectInput("bike_hub_size", label = "Hub:",
+              choices = hubs |> arrange(short_name) |> pull(short_name), selected = "Hauptbahnhof"),
+  sliderInput("ba_size", label = "Bikeability threshold:",
+              min = 0, max = 1, value = 0.5, step = 0.05)
+)
+```
+
+```{r bike_size_table, echo=FALSE}
+DT::renderDataTable({
+  ba_thres = as.numeric(input$ba_size)
+  hub_name = input$bike_hub_size
+  full_net = filter(bike_nets, hub == hub_name & round(index_threshold, 2) == 0)
+  bike_net = filter(bike_nets, hub == hub_name & round(index_threshold, 2) == ba_thres)
+  datatable(
+    tibble(
+      Indicator = c(
+        "Total network length (km)",
+        "Bikeable network length (km)",
+        "Bikeable network share (%)"
+      ),
+      Value = c(
+        round(drop_units(full_net$length) / 1000),
+        round(drop_units(bike_net$length) / 1000),
+        round(bike_net$share)
+      )
+    )
+  )
+})
+```
+
+```{r bike_size_figs, echo=FALSE}
+bike_sizemap = renderLeaflet({
+  ba_thres = as.numeric(input$ba_size)
+  hub_name = input$bike_hub_size
+  hub_geom = filter(hubs, short_name == hub_name)
+  hub_line_color = clrs[which(hubs$short_name == hub_name)]
+  hub_mark_color = marker_clrs[which(hubs$short_name == hub_name)]
+  base = filter(bike_nets, hub == hub_name & round(index_threshold, 2) == 0)
+  top = filter(bike_nets, hub == hub_name & round(index_threshold, 2) == ba_thres)
+  icon = awesomeIcons(
+    icon = 'ios-close',
+    iconColor = 'black',
+    library = 'ion',
+    markerColor = hub_mark_color
+  )
+  map = leaflet() |>
+    addProviderTiles("Esri.WorldGrayCanvas", group = "ESRI Gray Canvas") |>
+    addTiles(group = "OpenStreetMap") |>
+    addPolylines(data = base, color = "grey", weight = 2)
+  if (!all(st_is_empty(top))) {
+    map = map |>
+      addPolylines(data = top, color = hub_line_color, weight = 4, opacity = 0.8)
+  }
+  map |>
+    addAwesomeMarkers(data = hub_geom, icon = icon, label = ~short_name) |>
+    addLayersControl(baseGroups = c("ESRI Gray Canvas", "OpenStreetMap"))
+})
+
+bike_sizeplot = renderPlotly({
+  ggplotly(
+    plot_net(
+      bike_nets,
+      hub = input$bike_hub_size,
+      threshold = as.numeric(input$ba_size),
+      color = clrs[which(hubs$short_name == input$bike_hub_size)]
+    )
+  )
+})
+
+fluidRow(column(6, bike_sizemap), column(6, bike_sizeplot))
+```
+
+#### Connectivity of the bikeable network
+
+In this section we assess how well the bikeable street network around each hub actually connects the people that live there to the hub location. In other words, we derive if people that live in the proximity (within 3 kilometers of network distance) of the hub can reach the hub using only bikeable streets. This can be considered a more sophisticated analysis that the one above, where we only looked at the size of the bikeable network but did not consider its connectivity. Again, what is considered a bikeable street is defined by a bikeability threshold that sets a lower bound to the computed bikeability index of a street. Hence, any street with a bikeability index that is higher or equal to the threshold value is considered a bikeable street. Another factor we consider is how large the detour is that people need to take when they choose the shortest route over the bikeable network compared to the shortest route over the full network. We say that if this detour is longer than a given detour threshold, we do not consider the bikeable route to be an acceptable alternative, an hence, conclude that this person cannot reach the hub over the bikeable network.
+
+Below, you can view the assessment for each hub. With the slider you can influence both the bikeability threshold that defines which streets are considered bikeable, and the detour threshold that defines when the length of a bikeable route is no longer acceptable. The table shows some aggregated performance indicators that can be used to rank the hub. The map shows the households that are connected to the hub by the bikeable network (colored) compared to all households in the hubs proximity (grey). The plot shows the share of the total population that is connected to the hub through the bikeable network, considering different bikeability thresholds (x-axis) and detour thresholds (different lines).
+
+```{r bike_conn_input, echo=FALSE}
+inputPanel(
+  selectInput("bike_hub_conn", label = "Hub:",
+              choices = hubs |> arrange(short_name) |> pull(short_name), selected = "Hauptbahnhof"),
+  selectInput("bike_df_conn", label = "Detour threshold:",
+              choices = seq(1, 2, by = 0.25), selected = 1.5),
+  sliderInput("ba_conn", label = "Bikeability threshold:",
+              min = 0, max = 1, value = 0.5, step = 0.05)
+)
+```
+
+```{r bike_conn_table, echo=FALSE}
+DT::renderDataTable({
+  ba_thres = as.numeric(input$ba_conn)
+  df_thres = as.numeric(input$bike_df_conn)
+  hub_name = input$bike_hub_conn
+  full_pts = filter(bike_hlds, hub == hub_name & round(index_threshold, 2) == 0 & round(detour_threshold, 2) == 1)
+  reach_pts = filter(bike_hlds, hub == hub_name & round(index_threshold, 2) == ba_thres & round(detour_threshold, 2) == df_thres)
+  datatable(
+    tibble(
+      Indicator = c(
+        "Total population",
+        "Lowest detour",
+        "Average detour",
+        "Highest detour",
+        "Connected population",
+        "Connected population share (%)"
+      ),
+      Value = c(
+        full_pts$pop,
+        round(reach_pts$detour_shortest, 2),
+        round(reach_pts$detour_mean, 2),
+        round(reach_pts$detour_longest, 2),
+        reach_pts$pop,
+        round(reach_pts$share)
+      )
+    )
+  )
+})
+```
+
+```{r bike_conn_figs, echo=FALSE}
+bike_connmap = renderLeaflet({
+  ba_thres = as.numeric(input$ba_conn)
+  df_thres = as.numeric(input$bike_df_conn)
+  hub_name = input$bike_hub_conn
+  hub_geom = filter(hubs, short_name == hub_name)
+  hub_color = clrs[which(hubs$short_name == hub_name)]
+  hub_mark_color = marker_clrs[which(hubs$short_name == hub_name)]
+  base = filter(bike_hlds, hub == hub_name & round(index_threshold, 2) == 0 & round(detour_threshold, 2) == 1)
+  top = filter(bike_hlds, hub == hub_name & round(index_threshold, 2) == ba_thres & round(detour_threshold, 2) == df_thres)
+  base_geoms = st_cast(st_geometry(base), "POINT")
+  top_geoms = st_cast(st_geometry(top), "POINT")
+  icon = awesomeIcons(
+    icon = 'ios-close',
+    iconColor = 'black',
+    library = 'ion',
+    markerColor = hub_mark_color
+  )
+  map = leaflet() |>
+    addProviderTiles("Esri.WorldGrayCanvas", group = "ESRI Gray Canvas") |>
+    addTiles(group = "OpenStreetMap") |>
+    addCircles(data = base_geoms, color = "grey", opacity = 0.8)
+  if (!all(st_is_empty(top_geoms))) {
+    map = map |>
+      addCircles(data = top_geoms, color = hub_color, opacity = 0.8)
+  }
+  map |>
+    addAwesomeMarkers(data = hub_geom, icon = icon, label = ~short_name) |>
+    addLayersControl(baseGroups = c("ESRI Gray Canvas", "OpenStreetMap"))
+})
+
+bike_connplot = renderPlotly({
+  ggplotly(
+    plot_grid(
+      bike_hlds,
+      hub = input$bike_hub_conn,
+      thresholds = c(as.numeric(input$ba_conn), as.numeric(input$bike_df_conn)),
+      color = clrs[which(hubs$short_name == input$bike_hub_conn)]
+    )
+  )
+})
+
+fluidRow(column(6, bike_connmap), column(6, bike_connplot))
+```
+
+### Compare
+
+This section allows you to compare the results of the analysis between all the different hubs in one view, considering different bikeability thresholds and detour thresholds.
+
+```{r bike_comp_input, echo=FALSE}
+inputPanel(
+  sliderInput("ba_comp", label = "Bikeability threshold:",
+              min = 0, max = 1, value = 0.5, step = 0.05),
+  selectInput("bike_df_comp", label = "Detour threshold:",
+              choices = seq(1, 2, by = 0.25), selected = 1.5)
+)
+```
+
+```{r bike_comp_table, echo=FALSE}
+DT::renderDataTable({
+  ba_thres = as.numeric(input$ba_comp)
+  df_thres = as.numeric(input$bike_df_comp)
+  pop_shares = bike_hlds |>
+    st_drop_geometry() |>
+    filter(round(index_threshold, 2) == ba_thres & round(detour_threshold, 2) == df_thres) |>
+    select(hub, share) |>
+    rename(pop_share = share)
+  len_shares = bike_nets |>
+    st_drop_geometry() |>
+    filter(round(index_threshold, 2) == ba_thres) |>
+    select(hub, share) |>
+    rename(len_share = share)
+  all_shares = left_join(pop_shares, len_shares, by = "hub") |>
+    mutate(pop_share = round(pop_share, 1), len_share = round(len_share, 1)) |>
+    arrange(hub) |>
+    setNames(c("Hub", "Connected population share", "Bikeable network share"))
+  datatable(all_shares)
+})
+```
+
+```{r bike_comp_figs, echo=FALSE}
+renderPlotly({
+  ggplotly(
+    plot_grids(
+      bike_hlds, 
+      detour = as.numeric(input$bike_df_comp),
+      threshold = as.numeric(input$ba_comp),
+      colors = clrs
+    )
+  )
+})
+
+renderPlotly({
+  ggplotly(
+    plot_nets(
+      bike_nets, 
+      threshold = as.numeric(input$ba_comp),
+      colors = clrs
+    )
+  )
+})
+```
+
+## Walking accessibility
+
+### Describe
+
+In this section we describe some basic characteristics of the street network around each hub location that relate to walking as active transport mode. As the extent of this network, we use a buffer (based on network distance) of 500 meters around each hub. Many of the descriptive statistics refer to the walkability indices of the streets, which are derived using the [NetAScore toolbox](https://github.com/plus-mobilitylab/netascore). Walkability indices range from 0 (worst walkability) to 1 (best walkability). They are composite indices obtained by computing a weighted average of different indicators that each relate to a certain factor influencing how suitable the street is for walking. These indicators include the type of pedestrian infrastructure, the road category, the pavement type, the gradient and the presence of pedestrian crossings.
+
+The following table provides an overview of the walkability distribution for each hub. The average values are weighted by street length.
+
+```{r walk_desc_stats_table, echo=FALSE}
+walk_stats = walk_edgs |>
+  st_drop_geometry() |>
+  group_by(hub) |>
+  summarize(
+    minidx = round(min(index, na.rm = TRUE), 2),
+    maxidx = round(max(index, na.rm = TRUE), 2),
+    avgidx = round(weighted.mean(index, drop_units(length), na.rm = TRUE), 2),
+    .groups = "drop"
+  ) |>
+  setNames(c("Hub", "Lowest walkability", "Highest walkability", "Average walkability"))
+
+DT::renderDataTable({
+  datatable(walk_stats)
+})
+```
+
+The following table provides an overview of the types of pedestrian infrastructure present in the street network around each hub. The values are shares of total network length, in percentage.
+
+
+
+The following figures show the streets of the network around a selected hub, colored by walkability index, and the corresponding density plot of walkability indices, weighted by street length.
+
+```{r walk_desc_input, echo=FALSE}
+inputPanel(
+  selectInput("walk_hub_desc", label = "Hub:",
+              choices = hubs |> arrange(short_name) |> pull(short_name), selected = "Hauptbahnhof")
+)
+```
+
+```{r walk_desc_figs, echo=FALSE}
+walkabilitymap = renderLeaflet({
+  hub_name = input$walk_hub_desc
+  hub_geom = filter(hubs, short_name == hub_name)
+  hub_mark_color = marker_clrs[which(hubs$short_name == hub_name)]
+  edges = filter(walk_edgs, hub == hub_name)
+  icon = awesomeIcons(
+    icon = 'ios-close',
+    iconColor = 'black',
+    library = 'ion',
+    markerColor = hub_mark_color
+  )
+  pal = colorNumeric("viridis", domain = edges$index)
+  leaflet(edges) |>
+    addProviderTiles("Esri.WorldGrayCanvas", group = "ESRI Gray Canvas") |>
+    addTiles(group = "OpenStreetMap") |>
+    addPolylines(color = ~pal(index), weight = 3) |>
+    addAwesomeMarkers(data = hub_geom, icon = icon, label = ~short_name) |>
+    addLegend("bottomright", pal = pal, values = ~index, title = "Walkability index", opacity = 0.8) |>
+    addLayersControl(baseGroups = c("ESRI Gray Canvas", "OpenStreetMap"))
+})
+
+walkabilityplot = renderPlotly({
+  hub_name = input$walk_hub_desc
+  hub_color = clrs[which(hubs$short_name == hub_name)]
+  edges = filter(walk_edgs, hub == hub_name)
+  ggplotly(
+    ggplot(edges, aes(index)) +
+      geom_density(aes(weight = drop_units(length)), bw = 0.02, fill = hub_color, alpha = 0.5) +
+      xlab("Walkability index") +
+      xlim(0, 1)
+  )
+})
+
+fluidRow(column(6, walkabilitymap), column(6, walkabilityplot))
+```
+
+### Assess {.tabset}
+
+#### Size of the walkable network
+
+In this section we assess the size of the walkable street network around each hub location, and compare it to the total size of the street network around that hub. What is considered a walkable street is defined by a walkability threshold that sets a lower bound to the computed walkability index of a street. Hence, any street with a walkability index that is higher or equal to the threshold value is considered a walkable street.
+
+Below, you can view the assessment for each hub. With the slider you can influence the walkability threshold that defines which streets are considered walkable. The table shows some aggregated performance indicators that can be used to rank the hub. The map shows the walkable network (colored) compared to the total network (grey). The plot shows the share the total network length that is considered walkable, considering different walkability thresholds.
+
+```{r walk_size_input, echo=FALSE}
+inputPanel(
+  selectInput("walk_hub_size", label = "Hub:",
+              choices = hubs |> arrange(short_name) |> pull(short_name), selected = "Hauptbahnhof"),
+  sliderInput("wa_size", label = "Walkability threshold:",
+              min = 0, max = 1, value = 0.5, step = 0.05)
+)
+```
+
+```{r walk_size_table, echo=FALSE}
+DT::renderDataTable({
+  wa_thres = as.numeric(input$wa_size)
+  hub_name = input$walk_hub_size
+  full_net = filter(walk_nets, hub == hub_name & round(index_threshold, 2) == 0)
+  walk_net = filter(walk_nets, hub == hub_name & round(index_threshold, 2) == wa_thres)
+  datatable(
+    tibble(
+      Indicator = c(
+        "Total network length (km)",
+        "Walkable network length (km)",
+        "Walkable network share (%)"
+      ),
+      Value = c(
+        round(drop_units(full_net$length) / 1000),
+        round(drop_units(walk_net$length) / 1000),
+        round(walk_net$share)
+      )
+    )
+  )
+})
+```
+
+```{r walk_size_figs, echo=FALSE}
+walk_sizemap = renderLeaflet({
+  wa_thres = as.numeric(input$wa_size)
+  hub_name = input$walk_hub_size
+  hub_geom = filter(hubs, short_name == hub_name)
+  hub_line_color = clrs[which(hubs$short_name == hub_name)]
+  hub_mark_color = marker_clrs[which(hubs$short_name == hub_name)]
+  base = filter(walk_nets, hub == hub_name & round(index_threshold, 2) == 0)
+  top = filter(walk_nets, hub == hub_name & round(index_threshold, 2) == wa_thres)
+  icon = awesomeIcons(
+    icon = 'ios-close',
+    iconColor = 'black',
+    library = 'ion',
+    markerColor = hub_mark_color
+  )
+  map = leaflet() |>
+    addProviderTiles("Esri.WorldGrayCanvas", group = "ESRI Gray Canvas") |>
+    addTiles(group = "OpenStreetMap") |>
+    addPolylines(data = base, color = "grey", weight = 2)
+  if (!all(st_is_empty(top))) {
+    map = map |>
+      addPolylines(data = top, color = hub_line_color, weight = 4, opacity = 0.8)
+  }
+  map |>
+    addAwesomeMarkers(data = hub_geom, icon = icon, label = ~short_name) |>
+    addLayersControl(baseGroups = c("ESRI Gray Canvas", "OpenStreetMap"))
+})
+
+walk_sizeplot = renderPlotly({
+  ggplotly(
+    plot_net(
+      walk_nets,
+      hub = input$walk_hub_size,
+      threshold = as.numeric(input$wa_size),
+      color = clrs[which(hubs$short_name == input$walk_hub_size)],
+      mode = "walk"
+    )
+  )
+})
+
+fluidRow(column(6, walk_sizemap), column(6, walk_sizeplot))
+```
+
+#### Connectivity of the walkable network
+
+In this section we assess how well the walkable street network around each hub actually connects the people that live there to the hub location. In other words, we derive if people that live in the proximity (within 750 meters of network distance) of the hub can reach the hub using only walkable streets. This can be considered a more sophisticated analysis that the one above, where we only looked at the size of the bikeable network but did not consider its connectivity. Again, what is considered a walkable street is defined by a walkability threshold that sets a lower bound to the computed walkability index of a street. Hence, any street with a walkability index that is higher or equal to the threshold value is considered a walkable street. Another factor we consider is how large the detour is that people need to take when they choose the shortest route over the walkable network compared to the shortest route over the full network. We say that if this detour is longer than a given detour threshold, we do not consider the walkable route to be an acceptable alternative, an hence, conclude that this person cannot reach the hub over the walkable network.
+
+Below, you can view the assessment for each hub. With the slider you can influence both the walkability threshold that defines which streets are considered walkable, and the detour threshold that defines when the length of a walkable route is no longer acceptable. The table shows some aggregated performance indicators that can be used to rank the hub. The map shows the households that are connected to the hub by the walkable network (colored) compared to all households in the hubs proximity (grey). The plot shows the share of the total population that is connected to the hub through the walkable network, considering different walkability thresholds (x-axis) and detour thresholds (different lines).
+
+
+```{r walk_conn_input, echo=FALSE}
+inputPanel(
+  selectInput("walk_hub_conn", label = "Hub:",
+              choices = hubs |> arrange(short_name) |> pull(short_name), selected = "Hauptbahnhof"),
+  selectInput("walk_df_conn", label = "Detour threshold:",
+              choices = seq(1, 2, by = 0.25), selected = 1.5),
+  sliderInput("wa_conn", label = "Walkability threshold:",
+              min = 0, max = 1, value = 0.5, step = 0.05)
+)
+```
+
+```{r walk_conn_table, echo=FALSE}
+DT::renderDataTable({
+  wa_thres = as.numeric(input$wa_conn)
+  df_thres = as.numeric(input$walk_df_conn)
+  hub_name = input$walk_hub_conn
+  full_pts = filter(walk_hlds, hub == hub_name & round(index_threshold, 2) == 0 & round(detour_threshold, 2) == 1)
+  reach_pts = filter(walk_hlds, hub == hub_name & round(index_threshold, 2) == wa_thres & round(detour_threshold, 2) == df_thres)
+  datatable(
+    tibble(
+      Indicator = c(
+        "Total population",
+        "Lowest detour",
+        "Average detour",
+        "Highest detour",
+        "Connected population",
+        "Connected population share (%)"
+      ),
+      Value = c(
+        full_pts$pop,
+        round(reach_pts$detour_shortest, 2),
+        round(reach_pts$detour_mean, 2),
+        round(reach_pts$detour_longest, 2),
+        reach_pts$pop,
+        round(reach_pts$share)
+      )
+    )
+  )
+})
+```
+
+```{r walk_conn_figs, echo=FALSE}
+walk_connmap = renderLeaflet({
+  wa_thres = as.numeric(input$wa_conn)
+  df_thres = as.numeric(input$walk_df_conn)
+  hub_name = input$walk_hub_conn
+  hub_geom = filter(hubs, short_name == hub_name)
+  hub_cell_color = clrs[which(hubs$short_name == hub_name)]
+  hub_mark_color = marker_clrs[which(hubs$short_name == hub_name)]
+  base = filter(walk_hlds, hub == hub_name & round(index_threshold, 2) == 0 & round(detour_threshold, 2) == 1)
+  top = filter(walk_hlds, hub == hub_name & round(index_threshold, 2) == wa_thres & round(detour_threshold, 2) == df_thres)
+  base_geoms = st_cast(st_geometry(base), "POINT")
+  top_geoms = st_cast(st_geometry(top), "POINT")
+  icon = awesomeIcons(
+    icon = 'ios-close',
+    iconColor = 'black',
+    library = 'ion',
+    markerColor = hub_mark_color
+  )
+  map = leaflet() |>
+    addProviderTiles("Esri.WorldGrayCanvas", group = "ESRI Gray Canvas") |>
+    addTiles(group = "OpenStreetMap") |>
+    addCircles(data = base_geoms, color = "grey", opacity = 0.8)
+  if (!all(st_is_empty(top))) {
+    map = map |>
+      addCircles(data = top_geoms, color = hub_cell_color, opacity = 0.8)
+  }
+  map |>
+    addAwesomeMarkers(data = hub_geom, icon = icon, label = ~short_name) |>
+    addLayersControl(baseGroups = c("ESRI Gray Canvas", "OpenStreetMap"))
+})
+
+walk_connplot = renderPlotly({
+  ggplotly(
+    plot_grid(
+      walk_hlds,
+      hub = input$walk_hub_conn,
+      thresholds = c(as.numeric(input$wa_conn), as.numeric(input$walk_df_conn)),
+      color = clrs[which(hubs$short_name == input$walk_hub_conn)],
+      mode = "walk"
+    )
+  )
+})
+
+fluidRow(column(6, walk_connmap), column(6, walk_connplot))
+```
+
+### Compare
+
+This section allows you to compare the results of the analysis between all the different hubs in one view, considering different walkability thresholds and detour thresholds.
+
+```{r walk_comp_input, echo=FALSE}
+inputPanel(
+  sliderInput("wa_comp", label = "Walkability threshold:",
+              min = 0, max = 1, value = 0.5, step = 0.05),
+  selectInput("walk_df_comp", label = "Detour threshold:",
+              choices = seq(1, 2, by = 0.25), selected = 1.5)
+)
+```
+
+```{r walk_comp_table, echo=FALSE}
+DT::renderDataTable({
+  wa_thres = as.numeric(input$wa_comp)
+  df_thres = as.numeric(input$walk_df_comp)
+  pop_shares = walk_hlds |>
+    st_drop_geometry() |>
+    filter(round(index_threshold, 2) == wa_thres & round(detour_threshold, 2) == df_thres) |>
+    select(hub, share) |>
+    rename(pop_share = share)
+  len_shares = walk_nets |>
+    st_drop_geometry() |>
+    filter(round(index_threshold, 2) == wa_thres) |>
+    select(hub, share) |>
+    rename(len_share = share)
+  all_shares = left_join(pop_shares, len_shares, by = "hub") |>
+    mutate(pop_share = round(pop_share, 1), len_share = round(len_share, 1)) |>
+    arrange(hub) |>
+    setNames(c("Hub", "Connected population share", "Walkable network share"))
+  datatable(all_shares)
+})
+```
+
+```{r walk_comp_figs, echo=FALSE}
+renderPlotly({
+  ggplotly(
+    plot_grids(
+      walk_hlds, 
+      detour = as.numeric(input$walk_df_comp),
+      threshold = as.numeric(input$wa_comp),
+      colors = clrs,
+      mode = "walk"
+    )
+  )
+})
+
+renderPlotly({
+  ggplotly(
+    plot_nets(
+      walk_nets, 
+      threshold = as.numeric(input$wa_comp),
+      colors = clrs,
+      mode = "walk"
+    )
+  )
+})
+```

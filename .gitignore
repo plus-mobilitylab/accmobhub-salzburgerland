@@ -1,0 +1,10 @@
+data/source
+data/data.RData
+
+scripts/snippets
+plots/
+
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
