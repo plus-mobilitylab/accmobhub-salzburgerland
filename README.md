@@ -84,7 +84,7 @@ unzip("data/data.zip")
 
 ## Acknowledgements
 
-This research was funded by [Research Studios Austria - iSpace](https://ispace.maps.arcgis.com/home/index.html).
+Parts of this research were funded by a commission from [Research Studios Austria - iSpace](https://ispace.maps.arcgis.com/home/index.html).
 
 ## License
 
