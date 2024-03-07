@@ -175,9 +175,37 @@ DT::renderDataTable({
 })
 ```
 
-The following table provides an overview of the types of bicycle infrastructure present in the street network around each hub. The values are shares of total network length, in percentage.
+The following table provides an overview of the types of bicycle infrastructure present in the street network around each hub. The values are shares of total network length, in percentage. Due to rounding, it may be that not all rows add up to exactly 100.
 
+```{r bike_desc_shares_table, echo=FALSE}
+bike_shares = bike_edgs |>
+  st_drop_geometry() |>
+  group_by(hub, bicycle_infrastructure) |>
+  summarize(
+    length = sum(length),
+    .groups = "drop_last"
+  ) |>
+  mutate(share = drop_units(round(length / sum(length) * 100))) |>
+  ungroup() |>
+  select(-length) |>
+  pivot_wider(names_from = bicycle_infrastructure, values_from = share) |>
+  mutate(across(everything(), \(x) replace_na(x, 0))) |>
+  select(hub, bicycle_way, bicycle_road, bicycle_lane, mixed_way, bus_lane, shared_lane, no) |>
+  setNames(c(
+    "Hub",
+    "Separated bikepath",
+    "Bicycle road",
+    "Painted bikelane",
+    "Shared footpath",
+    "Shared buslane",
+    "Shared carlane (sharrow)",
+    "None"
+  ))
 
+DT::renderDataTable({
+  datatable(bike_shares)
+})
+```
 
 The following figures show the streets of the network around a selected hub, colored by bikeability index, and the corresponding density plot of bikeability indices, weighted by street length.
 
@@ -482,9 +510,36 @@ DT::renderDataTable({
 })
 ```
 
-The following table provides an overview of the types of pedestrian infrastructure present in the street network around each hub. The values are shares of total network length, in percentage.
+The following table provides an overview of the types of pedestrian infrastructure present in the street network around each hub. The values are shares of total network length, in percentage. Due to rounding, it may be that not all rows add up to exactly 100.
 
+```{r walk_desc_shares_table, echo=FALSE}
+walk_shares = walk_edgs |>
+  st_drop_geometry() |>
+  group_by(hub, pedestrian_infrastructure) |>
+  summarize(
+    length = sum(length),
+    .groups = "drop_last"
+  ) |>
+  mutate(share = drop_units(round(length / sum(length) * 100))) |>
+  ungroup() |>
+  select(-length) |>
+  pivot_wider(names_from = pedestrian_infrastructure, values_from = share) |>
+  mutate(across(everything(), \(x) replace_na(x, 0))) |>
+  select(hub, pedestrian_area, pedestrian_way, mixed_way, stairs, sidewalk, no) |>
+  setNames(c(
+    "Hub",
+    "Pedestrian area",
+    "Footpath",
+    "Shared footpath",
+    "Stairs",
+    "Sidewalk",
+    "None"
+  ))
 
+DT::renderDataTable({
+  datatable(walk_shares)
+})
+```
 
 The following figures show the streets of the network around a selected hub, colored by walkability index, and the corresponding density plot of walkability indices, weighted by street length.
 
