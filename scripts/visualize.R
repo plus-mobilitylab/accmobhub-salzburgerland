@@ -186,22 +186,25 @@ plot_accessibility = function(data, mode_name = "bike") {
 
 load(here("data/data.RData"))
 
-for (mode in c("bike")) {
+for (mode in c("bike", "walk")) {
   all_data = get(glue(mode, "_data"))
   for (hub in names(all_data)) {
+    # There are problems with the walkability analysis in Golling.
+    # We skip those figures for now.
+    if (mode == "walk" & hub == "Golling") next
     data = all_data[[hub]]
     zoom = ifelse(mode == "bike", 14, 15)
     # Input data map.
     file = here(glue("plots/", hub, "-data_map_", mode, ".png"))
-    map_input_data(data, zoom = zoom)
+    map_input_data(data, zoom = zoom, mode_name = mode)
     ggsave(file, width = 16, height = 16.8, units = "cm", dpi = 300)
     # Accessibility facet map.
     file = here(glue("plots/", hub, "-accessibility_map_", mode, ".png"))
-    map_accessibility_facetted(data, zoom = zoom)
+    map_accessibility_facetted(data, zoom = zoom, mode_name = mode)
     ggsave(file, width = 16, height = 16, units = "cm", dpi = 300)
     # Accessibility curves.
     file = here(glue("plots/", hub ,"-accessibility_plot_", mode, ".png"))
-    plot_accessibility(data)
+    plot_accessibility(data, mode_name = mode)
     ggsave(file, width = 16, height = 11, units = "cm", dpi = 300)
   }
 }
