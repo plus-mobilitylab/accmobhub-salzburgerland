@@ -1,6 +1,9 @@
 data/source
 data/data.RData
 
+app/rsconnect
+app/data/data.RData
+
 scripts/snippets
 plots/
 

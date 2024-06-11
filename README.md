@@ -27,7 +27,7 @@ The source data from which the pre-processed data are inferred are listed below.
 | Data | Description | Source |
 | --- | --- | --- |
 | `hubs.csv` | The examplary hub locations in Salzburg province | Provided by Research Studio iSpace |
-| `salzburgerland-netascore-20240123.gpkg` | Street network of the Salzburg province with computed bikeability and walkability indices for each street | Created using the NetAScore Toolbox](https://github.com/plus-mobilitylab/netascore/tree/v1.0.1), version v1.0.1. The mode profiles for respectively the bike and walk modes can be found in directory [profiles](profiles) |
+| `salzburgerland-netascore-20240123.gpkg` | Street network of the Salzburg province with computed bikeability and walkability indices for each street | Created using the [NetAScore Toolbox](https://github.com/plus-mobilitylab/netascore/tree/v1.0.1), version v1.0.1. The mode profiles for respectively the bike and walk modes can be found in directory [profiles](profiles) |
 | `salzburgerland-population.gpkg` | Population data of the Salzburg province for the year 2016 on a 100x100m grid | Purchased from Statistics Austria |
 | `ADRESSE.csv` | Address locations in Austria for the year 2021 | Openly available through [this link](https://data.bev.gv.at/download/Adressregister/Archiv_Adressregister/Adresse_Relationale_Tabellen_Stichtagsdaten_20211001.zip) |
 
@@ -82,6 +82,10 @@ And unzip the pre-processed data archive:
 unzip("data/data.zip")
 ```
 
+### Exploring the web app
+
+Instead of running the interactive notebook yourself, you can also just explore a hosted version online: https://plusmobilitylab.shinyapps.io/accmobhub-salzburgerland/ To keep the size of the app managable, the content displayed there is a subset of the full content. It only shows bicycle accessibility, for a limited set of potential hub locations.
+
 ## Acknowledgements
 
 Parts of this research were funded by a commission from [Research Studios Austria - iSpace](https://ispace.maps.arcgis.com/home/index.html).
@@ -89,3 +93,7 @@ Parts of this research were funded by a commission from [Research Studios Austri
 ## License
 
 This project is licensed under the MIT license. For details please see [LICENSE](LICENSE).
+
+## References
+
+For more background on the underlying methodologies, see our [conference paper](https://doi.org/10.5194/agile-giss-5-48-2024).
