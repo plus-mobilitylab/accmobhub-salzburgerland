@@ -1,6 +1,6 @@
 # Active transport accessibility to potential mobility hubs in Salzburg province
 
-This repository presents a workflow to assess and rank the active transport accessibility to potential mobility hubs. The workflow is presented by means of an interactive notebook.
+This repository presents a workflow to assess and rank the active transport accessibility to potential mobility hubs. It computes accessibility as the share of the population inside the catchment area of the hub that can reach the hub using only streets which are suitable for the corresponding active transport mode, without taking a unacceptable detour. It then shows how different definitions of what a suitable street is, and different threshold for detour acceptance, influence the computed accessibility levels. The workflow is presented by means of an interactive notebook.
 
 *DISCLAIMER: The potential mobility hub locations used in the examples are not part of any concrete implementation plans, but chosen as examples to showcase the workflow*
 

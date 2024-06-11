@@ -131,7 +131,9 @@ clrs = c("hotpink", "cadetblue", "greenyellow", "darkmagenta", "orange", "skyblu
 marker_clrs = c("pink", "cadetblue", "lightgreen", "purple", "orange", "lightblue", "beige", "darkred", "darkblue", "darkgreen")
 ```
 
-This notebook analyzes the active transport accessibility to various proposed transit mobility hub locations in the city of Salzburg. The hub locations are shown in the map below. They are neither real nor planned transit mobility hub locations, but are chosen for the analysis by means of example.
+This notebook analyzes the active transport accessibility to various proposed transit mobility hub locations in the city of Salzburg. It computes accessibility as the share of the population inside the catchment area of the hub that can reach the hub using only streets which are suitable for the corresponding active transport mode, without taking a unacceptable detour. It then shows how different definitions of what a suitable street is, and different threshold for detour acceptance, influence the computed accessibility levels.
+
+The hub locations are shown in the map below. They are neither real nor planned transit mobility hub locations, but are chosen for the analysis by means of example.
 
 ```{r hubs, echo=FALSE}
 icons = awesomeIcons(
@@ -154,7 +156,7 @@ renderLeaflet({
 
 ### Describe
 
-In this section we describe some basic characteristics of the street network around each hub location. As the extent of this network, we use a buffer (based on network distance) of 3 kilometers around each hub. Many of the descriptive statistics relate to the bikeability indices of the streets, which are derived using the [NetAScore toolbox](https://github.com/plus-mobilitylab/netascore). Bikeability indices range from 0 (worst bikeability) to 1 (best bikeability). They are composite indices obtained by computing a weighted average of different indicators that each relate to a certain factor influencing how suitable the street is for bicycle riding. These indicators include the type of bicycle infrastructure, the road category, the pavement type, and the gradient.
+In this section we describe some basic characteristics of the street network around each hub location. As the extent of this network, we use a buffer (based on network distance) of 3 kilometers around each hub. Many of the descriptive statistics relate to the bikeability indices of the streets, which are derived using the [NetAScore toolbox](https://github.com/plus-mobilitylab/netascore). Bikeability indices range from 0 (worst bikeability) to 1 (best bikeability). They are composite indices obtained by computing a weighted average of different indicators that each relate to a certain factor influencing how suitable the street is for bicycle riding. These indicators include the type of bicycle infrastructure, the road category (as a proxy for traffic intensity), the pavement type, and the gradient.
 
 The following table provides an overview of the bikeability distribution for each hub. The average values are weighted by street length.
 
